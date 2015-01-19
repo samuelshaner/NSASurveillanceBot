@@ -7,7 +7,6 @@ from tables import *
 import random
 import numpy as np
 import pbots_calc
-import matplotlib.pyplot as plt
 
 
 """
@@ -88,7 +87,7 @@ class Bot(object):
         # Update actions for this hand
         num_actions = int(words[10+num_board_cards])
         self._hands[-1].addPerformedActions(words[11+num_board_cards:11+num_board_cards+num_actions], self._players)
-
+ 
         # Compute hand equity
         equity = self.computeEquity(100)
         print 'equity = ' + str(equity)
@@ -123,7 +122,7 @@ class Bot(object):
       elif words[0] == "NEWHAND":
         
         # Create a new hand and add to Bot's list of hands
-        hand = Hand(words)
+        hand = Hand(words, self._players)
         self._hands.append(hand)
         self._players[words[8]].setSeat(1)
         self._players[words[9]].setSeat(2)
@@ -132,16 +131,12 @@ class Bot(object):
         self._players[words[9]].setIsActive(words[13])
         self._players[words[10]].setIsActive(words[14])
 
-        # Reset the weight table for each player
-        for player in self._players.itervalues():
-          player.resetWeightTable()
-        
         # Set my player's cards in this hand and remove from opponents weight tables
         self._hands[-1].setCards(self._me.getName(), words[3:5])
         
         # Update my time bank
         self._time_bank = float(words[15])
-        
+
         
       elif words[0] == "HANDOVER":
         
@@ -160,6 +155,7 @@ class Bot(object):
         
         # Update my time bank
         self._time_bank = float(words[-1])
+
 
     # Clean up the socket.
     s.close()
@@ -183,28 +179,28 @@ class Bot(object):
         else:
           action = "FOLD\n"
       elif 'RAISE' in action_dict.keys():
-        if equity_bet < float(action_dict['RAISE'][0]):
-          action = "CALL:" + action_dict['CALL'][0] + "\n"
-        elif equity_bet > float(action_dict['RAISE'][1]):
+        if equity_bet > float(action_dict['RAISE'][1]) and random.random() > 0.5:
           action = "RAISE:" + action_dict['RAISE'][1] + "\n"
-        else:
+        elif equity_bet > float(action_dict['RAISE'][0]) and random.random() > 0.5:
           action = "RAISE:" + str(round(equity_bet)) + "\n"
+        else:
+          action = "CALL:" + action_dict['CALL'][0] + "\n"
       else:
           action = "CALL:" + action_dict['CALL'][0] + "\n"
     elif 'CHECK' in action_dict.keys() and 'BET' in action_dict.keys():
-      if equity_bet < float(action_dict['BET'][0]):
-        action = "CHECK\n"
-      elif equity_bet > float(action_dict['BET'][1]):
+      if equity_bet > float(action_dict['BET'][1]) and random.random() > 0.5:
         action = "BET:" + action_dict['BET'][1] + "\n"
-      else:
+      elif equity_bet > float(action_dict['BET'][0]) and random.random() > 0.5:
         action = "BET:" + str(round(equity_bet)) + "\n"
-    else:
-      if equity_bet < float(action_dict['RAISE'][0]):
+      else: 
         action = "CHECK\n"
-      elif equity_bet > float(action_dict['RAISE'][1]):
+    else:
+      if equity_bet > float(action_dict['RAISE'][1]) and random.random() > 0.5:
         action = "RAISE:" + action_dict['RAISE'][1] + "\n"
-      else:
+      elif equity_bet > float(action_dict['RAISE'][0]) and random.random() > 0.5:
         action = "RAISE:" + str(round(equity_bet)) + "\n"
+      else: 
+        action = "CHECK\n"
 
     return action
 
@@ -224,41 +220,79 @@ class Bot(object):
         player.setIsActive(is_active)
         break
 
+
   def computeEquity(self, iters=100):
 
     hand = self._hands[-1]
-    total_equity = 1
-
     myhand = hand._cards[self._me._name][0] + hand._cards[self._me._name][1]
-    dead = ""
+    equity = 0.0
+
+    if hand._state == 'PREFLOP':
+      all_active = True
+      num_active = 0
+      for player in self._players.itervalues():
+        if not player._is_me and player._is_active:
+          num_active += 1
+          if len(player._potential_hands) != 9:
+            all_active = False
+            break
+
+      # Compute the equity
+      if all_active:
+        if num_active == 1:
+          equity = pbots_calc.calc(myhand + ':xx', '', '', 100)
+        else:        
+          equity = pbots_calc.calc(myhand + ':xx:xx', '', '', 100)    
+
+        if equity is not None:
+          return equity.ev[0]
+        else:
+          return 0.1
+          
+      else:
+        return self.computeEHS(iters)
+
+    else:
+      return self.computeEHS(iters)
+
+
+  def computeEHS(self, iters=100):
+
+    hand = self._hands[-1]
+    myhand = hand._cards[self._me._name][0] + hand._cards[self._me._name][1]
     board = ""
     for card in hand._board:
       board += card
 
-    for player in self._players.itervalues():
+    ahead = 0
+    behind = 0
+
+    # Find number of active players
+    active_players = []
+    for name, player in self._players.iteritems():
       if not player._is_me and player._is_active:
-        player_weight = 0.0
-        player_equity = 0.0
+        active_players.append(name)
 
-        # Loop over all possible hands
-        for i in xrange(13):
-          for j in xrange(13):
-            if player._weight_table[i,j] > 0.00001:
-              opphand = PBOT_CARD_COMBOS[i][j]
-              equity = pbots_calc.calc(myhand + ':' + opphand, board, dead, iters)
-              if equity is not None:
-                player_weight += player._weight_table[i,j]
-                player_equity += equity.ev[1] * player._weight_table[i,j]
+    if len(active_players) == 2:
+      for cards1 in self._players[active_players[0]]._potential_hands:
+        equity = pbots_calc.calc(myhand + ':' + cards1, board, '', iters)
+        if equity is not None:
+          if equity.ev[0] > equity.ev[1]:
+            ahead += 1
+          else:
+            behind += 1
 
-        total_equity *= player_equity / player_weight
-        
-    return (1.0 - total_equity)
+    else:
+      for cards1 in self._players[active_players[0]]._potential_hands:
+        equity = pbots_calc.calc(myhand + ':' + cards1, board, '', iters)
+        if equity is not None:
+          if equity.ev[0] > equity.ev[1]:
+            ahead += 1
+          else:
+            behind += 1
 
-
-
-
-
-
+    EHS = float(ahead) / (ahead + behind)
+    return EHS
 
 
         

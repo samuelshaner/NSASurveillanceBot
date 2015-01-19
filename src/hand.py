@@ -3,29 +3,26 @@ from tables import *
 
 class Hand(object):
 
-  def __init__(self, words):
+  def __init__(self, words, players):
     
     self._cards = {}
     self._board = []
     self._id = None
     self._state = None
     self._actions = {}
-    self._seats = {}
     self._num_active = None
     self._pot_size = {}
-    self._updated_weight_tables = {}
-
+    self._players = players
+    self._features = {}
+    
     # Initialize variables
     self.setState('PREFLOP')
     self.setId(int(words[1]))
-    self._seats[words[8]] = 1
-    self._seats[words[9]] = 2
-    self._seats[words[10]] = 3
-    self._updated_weight_tables[words[8]] = False
-    self._updated_weight_tables[words[9]] = False
-    self._updated_weight_tables[words[10]] = False
     self._num_active = self.setNumActive(int(words[11]))
 
+    for player in players.itervalues():
+      player.resetPotentialHands()
+    
 
   def setId(self, id):
 
@@ -51,42 +48,81 @@ class Hand(object):
 
     for action in actions:
       words = action.split(':')
+      current_action = words[0]
 
       # Performed actions
-      if words[0] == 'DEAL':
+      if current_action == 'DEAL':
         self.setState(words[1])
 
-      elif words[0] in ['BET', 'CALL', 'POST', 'RAISE']:
-        self._actions[self._state].append((words[2], words[0], int(words[1])))
+      elif current_action in ['BET', 'CALL', 'POST', 'RAISE']:
+        player = players[words[2]]
+        self._actions[self._state].append((player, current_action, int(words[1])))
         self._pot_size[self._state] += int(words[1])
-        
-        if self._updated_weight_tables[words[2]] is False and not players[words[2]]._is_me and self._state is not 'PREFLOP':
-          players[words[2]].updateWeightTable(self._board, words[0])
-          self._updated_weight_tables[words[2]] = True
-          
-      elif words[0] in ['REFUND', 'TIE', 'WIN']:
-        self._actions[self._state].append((words[2], words[0], int(words[1])))
+        self.addFeature(player, self._state, action)
+                  
+      elif current_action in ['REFUND', 'TIE', 'WIN']:
+        player = players[words[2]]
+        self._actions[self._state].append((player, current_action, int(words[1])))
 
-      elif words[0] in ['CHECK']:
-        self._actions[self._state].append((words[1], words[0]))
+      elif current_action in ['CHECK']:
+        player = players[words[1]]
+        self._actions[self._state].append((player, current_action))
+        self.addFeature(player, self._state, action)
 
-        if self._updated_weight_tables[words[1]] is False and not players[words[1]]._is_me and self._state is not 'PREFLOP':
-          players[words[1]].updateWeightTable(self._board, 'CHECK')
-          self._updated_weight_tables[words[1]] = True
+      elif current_action in ['FOLD']:
+        player = words[1]
+        self._actions[self._state].append((player, current_action))
 
-      elif words[0] in ['FOLD']:
-        self._actions[self._state].append((words[1], words[0]))
-
-      elif words[0] == 'SHOW':
-        self._actions[self._state].append((words[3], words[0], words[1:3]))
+      elif current_action == 'SHOW':
+        player = words[3]
+        self._actions[self._state].append((player, current_action, words[1:3]))
         self.setCards(words[3], words[1:3])
-        continue
+
+
+  def addFeature(self, player, state, action, value=True):
+
+    # Get the state to determine which feature vectors to set
+    max_state_id = 3
+    if state == 'FLOP':
+      max_state_id = 2
+    elif state == 'TURN':
+      max_state_id = 1
+    elif state == 'RIVER':
+      max_state_id = 0
+
+    # add feature to correct feature vector
+    for state_id in xrange(max_state_id+1):
+      feature_ids = self.getFeatureIds(state_id, action)
+      for feature_id in feature_ids:
+        self._features[(player._id, state_id)][feature_id] = value
+
+
+  def getFeatureIds(self, state_id, action):
+
+    state_offset = 0
+    if state_id == 0:
+      state_offset = 1
+
+    feature_ids = []
+    if action == 'CALL':
+      feature_ids.append(1)
+    elif action == 'CHECK':
+      feature_ids.append(2)
+    elif action == 'BET':
+      feature_ids.append(3)
+    elif action == 'RAISE':
+      feature_ids.append(4)
+    elif action == 'CHECK':
+      feature_ids.append(2)
+
 
 
   def setState(self, state):
 
+    self._actions[state] = []
+    self.updatePotentialHands()
+
     self._state = state
-    self._actions[self._state] = []
     self._pot_size[self._state] = 0
 
     if self._state == 'FLOP':
@@ -96,9 +132,27 @@ class Hand(object):
     elif self._state == 'RIVER':
       self._pot_size[self._state] = self._pot_size['TURN']
 
-    for key in self._updated_weight_tables.keys():
-      self._updated_weight_tables[key] = False
 
+
+  def updatePotentialHands(self):
+    
+    if self._state is not None:
+      for player in self._players.itervalues():
+        if not player._is_me and player._is_active:
+          
+          actions = []
+          
+          # Get player actions
+          for action in self._actions[self._state]:
+            if action[0] == player._name:
+              actions.append(action[1])
+              
+          if 'BET' or 'RAISE' in actions:
+            player._potential_hands = player._potential_hands[:16]
+          elif 'CALL' in actions:
+            player._potential_hands = player._potential_hands[:24]
+          else:
+            player._potential_hands = player._potential_hands[:51]
 
   def reprRound(self, actions):
     

@@ -33,7 +33,7 @@ if sys.platform.startswith('win'):
 elif sys.platform.startswith('darwin'):
     pbots_calc = "libpbots_calc.dylib"
 else:
-    pbots_calc = "libpbots_calc.so"
+    pbots_calc = "export/linux2/lib/libpbots_calc.so"
 
 class _Results(ctypes.Structure):
     _fields_ = [("ev", ctypes.POINTER(ctypes.c_double)),
