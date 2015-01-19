@@ -8,6 +8,7 @@ import random
 import numpy as np
 import pbots_calc
 import matplotlib.pyplot as plt
+import heapq
 
 
 """
@@ -256,10 +257,16 @@ class Bot(object):
 
 
 
+def kNearest(x, features, values, k):
+  
+  # compute distances
+  diff = np.matrix( (x - features)**2 ).sum(axis=1).flatten().tolist()[0]
 
+  # sort list
+  ordered = [b for (a,b) in sorted(zip(diff, values))]
 
-
-
+  # get k nearest, return average
+  return np.mean(ordered[:k])
 
         
 if __name__ == '__main__':
@@ -278,3 +285,5 @@ if __name__ == '__main__':
 
   bot = Bot()
   bot.run(s)
+
+

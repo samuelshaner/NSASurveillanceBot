@@ -95,4 +95,4 @@ class Player(object):
     string += ' Seat \t\t\t\t\t = {0} \n'.format(self._seat)
 
     return string
-    
+
