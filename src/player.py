@@ -1,7 +1,6 @@
 from math import *
 import numpy as np
 from tables import *
-import pbots_calc
 import copy
 
 class Player(object):

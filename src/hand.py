@@ -14,14 +14,20 @@ class Hand(object):
     self._pot_size = {}
     self._players = players
     self._features = {}
+    self._hand_strength_predict = {}
+    self._hand_strength_actual = {}
     
     # Initialize variables
     self.setState('PREFLOP')
     self.setId(int(words[1]))
     self._num_active = self.setNumActive(int(words[11]))
 
-    for player in players.itervalues():
+    for name,player in players.iteritems():
       player.resetPotentialHands()
+      self._features[name, 'PREFLOP'] = np.zeros(67, dtype=bool)
+      self._features[name, 'FLOP'] = np.zeros(67, dtype=bool)
+      self._features[name, 'TURN'] = np.zeros(67, dtype=bool)
+      self._features[name, 'RIVER'] = np.zeros(67, dtype=bool)
     
 
   def setId(self, id):
@@ -54,20 +60,39 @@ class Hand(object):
       if current_action == 'DEAL':
         self.setState(words[1])
 
-      elif current_action in ['BET', 'CALL', 'POST', 'RAISE']:
-        player = players[words[2]]
+      elif current_action in ['POST']:
+        player = words[2]
         self._actions[self._state].append((player, current_action, int(words[1])))
         self._pot_size[self._state] += int(words[1])
-        self.addFeature(player, self._state, action)
-                  
+
+      elif current_action in ['CALL']:
+        player = words[2]
+        amount = int(words[1])
+        self._actions[self._state].append((player, current_action, amount))
+        self._pot_size[self._state] += amount
+        self.addFeature(player, self._state, current_action)
+
+      elif current_action in ['BET', 'RAISE']:
+        player = words[2]
+        amount = int(words[1])
+        self._actions[self._state].append((player, current_action, amount))
+        self._pot_size[self._state] += amount
+        self.addFeature(player, self._state, current_action)
+        if amount == 2:
+          self.addFeature(player, self._state, 'BET', 'MIN')
+        elif amount == self._pot_size[self._state] - amount:
+          self.addFeature(player, self._state, 'BET', 'MAX')
+        else:
+          self.addFeature(player, self._state, 'BET', 'MID')                  
+
       elif current_action in ['REFUND', 'TIE', 'WIN']:
-        player = players[words[2]]
+        player = words[2]
         self._actions[self._state].append((player, current_action, int(words[1])))
 
       elif current_action in ['CHECK']:
-        player = players[words[1]]
+        player = words[1]
         self._actions[self._state].append((player, current_action))
-        self.addFeature(player, self._state, action)
+        self.addFeature(player, self._state, current_action)
 
       elif current_action in ['FOLD']:
         player = words[1]
@@ -79,42 +104,23 @@ class Hand(object):
         self.setCards(words[3], words[1:3])
 
 
-  def addFeature(self, player, state, action, value=True):
+  def addFeature(self, player, current_state, action, value=True):
 
-    # Get the state to determine which feature vectors to set
-    max_state_id = 3
-    if state == 'FLOP':
-      max_state_id = 2
-    elif state == 'TURN':
-      max_state_id = 1
-    elif state == 'RIVER':
-      max_state_id = 0
+    states = ['RIVER']
+    if current_state == 'FLOP':
+      states.append('TURN')
+      states.append('FLOP')
+    elif current_state == 'TURN':
+      states.append('TURN')
+    elif current_state == 'PREFLOP':
+      states.append('TURN')
+      states.append('FLOP')
+      states.append('PREFLOP')
 
     # add feature to correct feature vector
-    for state_id in xrange(max_state_id+1):
-      feature_ids = self.getFeatureIds(state_id, action)
-      for feature_id in feature_ids:
-        self._features[(player._id, state_id)][feature_id] = value
-
-
-  def getFeatureIds(self, state_id, action):
-
-    state_offset = 0
-    if state_id == 0:
-      state_offset = 1
-
-    feature_ids = []
-    if action == 'CALL':
-      feature_ids.append(1)
-    elif action == 'CHECK':
-      feature_ids.append(2)
-    elif action == 'BET':
-      feature_ids.append(3)
-    elif action == 'RAISE':
-      feature_ids.append(4)
-    elif action == 'CHECK':
-      feature_ids.append(2)
-
+    feature_id = FEATURE_TUPLE_TO_ID_MAP[(current_state, action, value)]
+    for state in states:
+      self._features[(player, state)][feature_id] = True
 
 
   def setState(self, state):
@@ -184,6 +190,12 @@ class Hand(object):
     for player,cards in self._cards.iteritems():
       string += '\t {:15s} - {:2s} {:2s} \n'.format(player, cards[0], cards[1])
 
+    for player_state,hs in self._hand_strength_actual.iteritems():
+        string += '\t ACTUAL  HS {:15s} - {:5.4f}\n'.format(player_state[0] + ' - ' + player_state[1], hs)
+
+    for player_state,hs in self._hand_strength_predict.iteritems():
+        string += '\t PREDICT HS {:15s} - {:5.4f}\n'.format(player_state[0] + ' - ' + player_state[1], hs)
+
     string += ' Actions \n'.format()    
     streets = ['PREFLOP', 'FLOP', 'TURN', 'RIVER']
     for street in streets:
@@ -191,6 +203,13 @@ class Hand(object):
         string += '\t ROUND = {:8s}, POTSIZE = {:3d} \n'.format(street, self._pot_size[street])
         string += self.reprRound(self._actions[street])
 
-    return string
+    # print the True features for each player
+    for key,f_vector in self._features.iteritems():
+      if not self._players[key[0]]._is_me:
+        string += '\t Player: {:15s} - State: {:10s} \n'.format(key[0], key[1])
+        for f_key,f_value in FEATURE_TUPLE_TO_ID_MAP.iteritems():
+            if f_vector[f_value] == True:
+              string += '\t Feature = {0}\n'.format(f_key) 
 
+    return string
 
