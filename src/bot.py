@@ -133,16 +133,16 @@ class Bot(object):
               UB = 1.0
             
             num_trials = len(self._aggregate_hand_strength[name, state]['UB'])
-            if num_trials >= 50 and num_trials%25 == 0:
+            if num_trials >= 25 and num_trials%5 == 0:
 
-              #FIXME: Right now just using upper bound - should use upper and lower
-              X = self._aggregate_hand_strength[name, state]['UB']
+              X = zip(self._aggregate_hand_strength[name, state]['LB'],
+                  self._aggregate_hand_strength[name, state]['UB'])
               Y = self._aggregate_hand_strength[name, state]['actual']
-             
+            
               self.regression_model[name, state].fit(X,Y)
 
-            if num_trials > 50:
-              hand_strength = self.regression_model[name, state].predict(UB)
+            if num_trials > 25:
+              hand_strength = self.regression_model[name, state].predict([LB,UB])
               hand._hand_strength_predict[name, state] = hand_strength
             
             else:
@@ -225,8 +225,10 @@ class Bot(object):
                   shown = num_cards_shown[rd]
                   hs = self.computeHandStrength(cards, board[:shown])
 
-                  # save hand strength
-                  hand._hand_strength[name, rd]['actual'].append(hs)
+                  # save actual hand strength
+                  for i in range(len(hand._hand_strength[name,rd]['LB'])):
+                    hand._hand_strength[name, rd]['actual'].append(hs)
+                  
                   comps = ['LB','UB','actual']
                   for comp in comps:
                     self._aggregate_hand_strength[name, rd][comp] += \

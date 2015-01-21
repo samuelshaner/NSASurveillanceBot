@@ -74,8 +74,8 @@ class Hand(object):
         amount = int(words[1])
         
         # calculate predicted lower and upper bounds for player hand strength
-        LB = amount / self._pot_size[self._state]
-        UB = 2 * amount / self._pot_size[self._state]
+        LB = float(amount) / self._pot_size[self._state]
+        UB = 2 * float(amount) / self._pot_size[self._state]
         self._hand_strength[player, self._state]['LB'].append(LB)
         self._hand_strength[player, self._state]['UB'].append(UB)
 
@@ -94,8 +94,8 @@ class Hand(object):
           self._prev_bet = amount - self._prev_bet
         
         # calculate predicted lower and upper bounds for player hand strength
-        LB = min( amount / self._pot_size[self._state], 1)
-        UB = min( (amount + 1) / self._pot_size[self._state], 1)
+        LB = min( float(amount) / self._pot_size[self._state], 1)
+        UB = min( float(amount + 1) / self._pot_size[self._state], 1)
         self._player_LB[player] = LB
         self._player_UB[player] = UB
         self._hand_strength[player, self._state]['LB'].append(LB)
@@ -120,7 +120,7 @@ class Hand(object):
         
         # calculate predicted lower and upper bounds for player hand strength
         LB = 0
-        UB = self._prev_bet
+        UB = float(self._prev_bet)/self._pot_size[self._state]
         self._player_LB[player] = LB
         self._player_UB[player] = UB
         self._hand_strength[player, self._state]['LB'].append(LB)
@@ -134,7 +134,7 @@ class Hand(object):
         
         # calculate predicted lower and upper bounds for player hand strength
         LB = 0
-        UB = self._prev_bet
+        UB = float(self._prev_bet)/self._pot_size[self._state]
         self._player_LB[player] = LB
         self._player_UB[player] = UB
         self._hand_strength[player, self._state]['LB'].append(LB)
