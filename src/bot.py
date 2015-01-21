@@ -133,7 +133,7 @@ class Bot(object):
               UB = 1.0
             
             num_trials = len(self._aggregate_hand_strength[name, state]['UB'])
-            if num_trials >= 25 and num_trials%5 == 0:
+            if num_trials > 5:
 
               X = zip(self._aggregate_hand_strength[name, state]['LB'],
                   self._aggregate_hand_strength[name, state]['UB'])
@@ -141,7 +141,7 @@ class Bot(object):
             
               self.regression_model[name, state].fit(X,Y)
 
-            if num_trials > 25:
+            if num_trials > 5:
               hand_strength = self.regression_model[name, state].predict([LB,UB])
               hand._hand_strength_predict[name, state] = hand_strength
             
