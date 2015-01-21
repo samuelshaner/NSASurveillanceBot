@@ -10,6 +10,7 @@ from card import Card
 from deck import Deck 
 from evaluator import Evaluator
 from copy import deepcopy
+import sklearn
 
 
 """
@@ -100,29 +101,29 @@ class Bot(object):
         state = hand._state
 
         # add features for cards on table
-        #if state is not 'PREFLOP':
-          #(straight,straight_draw) = self.getStraight(words[3:3+num_board_cards])
-          #(flush,flush_draw) = self.getFlush(words[3:3+num_board_cards])
-          #pair = self.getPairs(words[3:3+num_board_cards])
-          #(aces,kings,queens) = self.getCards(words[3:3+num_board_cards], ['A','K','Q'])
+        if state is not 'PREFLOP':
+          (straight,straight_draw) = self.getStraight(words[3:3+num_board_cards])
+          (flush,flush_draw) = self.getFlush(words[3:3+num_board_cards])
+          pair = self.getPairs(words[3:3+num_board_cards])
+          (aces,kings,queens) = self.getCards(words[3:3+num_board_cards], ['A','K','Q'])
           
-          #for name,player in self._players.iteritems():
-            #if not player._is_me:
-              #hand.addFeature(name, state, 'STRAIGHTDRAW', straight_draw)
-              #hand.addFeature(name, state, 'STRAIGHT', straight)
-              #hand.addFeature(name, state, 'FLUSHDRAW', flush_draw)
-              #hand.addFeature(name, state, 'FLUSH', flush)
-              #hand.addFeature(name, state, 'PAIRS', pair)
-              #hand.addFeature(name, state, 'ACES', aces)
-              #hand.addFeature(name, state, 'KINGS', kings)
-              #hand.addFeature(name, state, 'QUEENS', queens)
+          for name,player in self._players.iteritems():
+            if not player._is_me:
+              hand.addFeature(name, state, 'STRAIGHTDRAW', straight_draw)
+              hand.addFeature(name, state, 'STRAIGHT', straight)
+              hand.addFeature(name, state, 'FLUSHDRAW', flush_draw)
+              hand.addFeature(name, state, 'FLUSH', flush)
+              hand.addFeature(name, state, 'PAIRS', pair)
+              hand.addFeature(name, state, 'ACES', aces)
+              hand.addFeature(name, state, 'KINGS', kings)
+              hand.addFeature(name, state, 'QUEENS', queens)
               
 
         # Predict player hand strengths 
         opponent_hand_strengths = []
         for name,player in self._players.iteritems():
           if not player._is_me and player._is_active:
-            if np.shape(self._k_nearest_values[name, state])[0] > 10:
+            if np.shape(self._k_nearest_values[name, state])[0] > 20:
               features = hand._features[name, state]
               feature_matrix = self._k_nearest_matrices[name, state]
               feature_values = self._k_nearest_values[name, state]
@@ -383,13 +384,13 @@ class Bot(object):
 
     # get call threshold value. We have this so we are more loose early on
     if state == 'PREFLOP':
-      call_thresh = 0.5
+      equity_bet *= 1.7
     elif state == 'FLOP':
-      call_thresh = 0.7
+      equity_bet *= 1.2
     elif state == 'TURN':
-      call_thresh = 0.9
+      equity_bet *= 1.0
     else:
-      call_thresh = 1.1
+      equity_bet *= 0.75
       
 
     if 'CALL' in action_dict.keys():
@@ -397,7 +398,7 @@ class Bot(object):
       print 'equity bet: ' + str(equity_bet) + ', call amount: ' + call_amount 
       if equity_bet < float(call_amount):
         #val = random.random()
-        if equity_bet > call_thresh * float(call_amount):
+        if equity_bet > float(call_amount):
           action = "CALL:" + call_amount + "\n"
         else:
           action = "FOLD\n"
@@ -417,7 +418,7 @@ class Bot(object):
       bet_min = action_dict['BET'][0]
       if equity_bet > float(bet_max):
         action = "BET:" + bet_max + "\n"
-      elif equity_bet >  (2.0 - call_thresh) * float(bet_min):
+      elif equity_bet > float(bet_min):
         action = "BET:" + str(round(equity_bet)) + "\n"
       else: 
         action = "CHECK\n"
@@ -426,7 +427,7 @@ class Bot(object):
       raise_min = action_dict['RAISE'][0]
       if equity_bet > float(raise_max):
         action = "RAISE:" + raise_max + "\n"
-      elif equity_bet >  (2.0 - call_thresh) * float(raise_min):
+      elif equity_bet > float(raise_min):
         action = "RAISE:" + str(round(equity_bet)) + "\n"
       else: 
         action = "CHECK\n"
