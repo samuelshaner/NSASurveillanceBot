@@ -10,8 +10,7 @@ from card import Card
 from deck import Deck 
 from evaluator import Evaluator
 from copy import deepcopy
-import sklearn
-
+from sklearn.linear_model import LinearRegression
 
 """
 Simple example pokerbot, written in python.
@@ -34,7 +33,9 @@ class Bot(object):
     self._k_nearest_matrices = {}
     self._k_nearest_values = {}
     self._k_nearest_points = 3
-
+    self._aggregate_hand_strength = {}
+    self.regression_model = {}
+    
   def run(self, input_socket):
 
     # Get a file-object for reading packets from the socket.
@@ -123,14 +124,29 @@ class Bot(object):
         opponent_hand_strengths = []
         for name,player in self._players.iteritems():
           if not player._is_me and player._is_active:
-            if np.shape(self._k_nearest_values[name, state])[0] > 20:
-              features = hand._features[name, state]
-              feature_matrix = self._k_nearest_matrices[name, state]
-              feature_values = self._k_nearest_values[name, state]
-              hand_strength = self.kNearest(features, feature_matrix, feature_values)
-              hand._hand_strength_predict[name, state] = hand_strength
+            
+            if name in hand._player_LB:
+              LB = hand._player_LB[name]
+              UB = hand._player_UB[name]
             else:
-              hand_strength = 0.5
+              LB = 0.0
+              UB = 1.0
+            
+            num_trials = len(self._aggregate_hand_strength[name, state]['UB'])
+            if num_trials > 5:
+
+              X = zip(self._aggregate_hand_strength[name, state]['LB'],
+                  self._aggregate_hand_strength[name, state]['UB'])
+              Y = self._aggregate_hand_strength[name, state]['actual']
+            
+              self.regression_model[name, state].fit(X,Y)
+
+            if num_trials > 5:
+              hand_strength = self.regression_model[name, state].predict([LB,UB])
+              hand._hand_strength_predict[name, state] = hand_strength
+            
+            else:
+              hand_strength = 0.5 * (LB + UB)
 
             opponent_hand_strengths.append(hand_strength)
 
@@ -170,14 +186,20 @@ class Bot(object):
         # Create k nearest matrices and value dicts for each player and state combo
         for name,player in self._players.iteritems():
           if not player._is_me:
-            self._k_nearest_matrices[name, 'PREFLOP'] = None
-            self._k_nearest_matrices[name, 'FLOP'] = None
-            self._k_nearest_matrices[name, 'TURN'] = None
-            self._k_nearest_matrices[name, 'RIVER'] = None
-            self._k_nearest_values[name, 'PREFLOP'] = np.array([])
-            self._k_nearest_values[name, 'FLOP'] = np.array([])
-            self._k_nearest_values[name, 'TURN'] = np.array([])
-            self._k_nearest_values[name, 'RIVER'] = np.array([])
+            rounds = ['PREFLOP', 'FLOP', 'TURN', 'RIVER']
+            for rd in rounds:
+              self._k_nearest_matrices[name,rd] = None
+              self._k_nearest_values[name,rd] = np.array([])
+              
+              #FIXME: change to ridge regression???
+              self.regression_model[name,rd] = \
+                  LinearRegression(fit_intercept=True, normalize=False, \
+                  copy_X=True)
+
+              self._aggregate_hand_strength[name,rd] = {}
+              comps = ['LB','UB','actual']
+              for comp in comps:
+                self._aggregate_hand_strength[name,rd][comp] = []
 
        # Set the game parameters
         self._big_blind  = int(words[5])
@@ -194,45 +216,23 @@ class Bot(object):
             board = hand._board
             for name,cards in hand._cards.iteritems():
               if not self._players[name]._is_me:
-                
-                hs = self.computeHandStrength(cards, [])
-                if self._k_nearest_matrices[name, 'PREFLOP'] is None:
-                  self._k_nearest_matrices[name, 'PREFLOP'] = np.array([np.copy(hand._features[name, 'PREFLOP'])])
-                else:
-                  self._k_nearest_matrices[name, 'PREFLOP'] = np.append(self._k_nearest_matrices[name, 'PREFLOP'], [hand._features[name, 'PREFLOP']], 0)
-                self._k_nearest_values[name, 'PREFLOP'] = np.append(self._k_nearest_values[name, 'PREFLOP'], hs)
-                hand._hand_strength_actual[name, 'PREFLOP'] = hs
-
-                hs = self.computeHandStrength(cards, board[:3])
-                if self._k_nearest_matrices[name, 'FLOP'] is None:
-                  self._k_nearest_matrices[name, 'FLOP'] = np.array([np.copy(hand._features[name, 'FLOP'])])
-                else:
-                  self._k_nearest_matrices[name, 'FLOP'] = np.append(self._k_nearest_matrices[name, 'FLOP'], [hand._features[name, 'FLOP']], 0)
+               
+                rounds = ['PREFLOP', 'FLOP', 'TURN', 'RIVER']
+                num_cards_shown = {'PREFLOP':0, 'FLOP':3, 'TURN':4, 'RIVER':5}
+                for rd in rounds:
                   
-                self._k_nearest_values[name, 'FLOP'] = np.append(self._k_nearest_values[name, 'FLOP'], hs)
-                hand._hand_strength_actual[name, 'FLOP'] = hs
+                  # calculate hand strength
+                  shown = num_cards_shown[rd]
+                  hs = self.computeHandStrength(cards, board[:shown])
 
-                hs = self.computeHandStrength(cards, board[:4])
-                if self._k_nearest_matrices[name, 'TURN'] is None:
-                  self._k_nearest_matrices[name, 'TURN'] = np.array([np.copy(hand._features[name, 'TURN'])])
-                else:
-                  self._k_nearest_matrices[name, 'TURN'] = np.append(self._k_nearest_matrices[name, 'TURN'], [hand._features[name, 'TURN']], 0)
-
-                self._k_nearest_values[name, 'TURN'] = np.append(self._k_nearest_values[name, 'TURN'], hs)
-                hand._hand_strength_actual[name, 'TURN'] = hs
-
-                hs = self.computeHandStrength(cards, board)
-                if self._k_nearest_matrices[name, 'RIVER'] is None:
-                  self._k_nearest_matrices[name, 'RIVER'] = np.array([np.copy(hand._features[name, 'RIVER'])])
-                else:
-                  self._k_nearest_matrices[name, 'RIVER'] = np.append(self._k_nearest_matrices[name, 'RIVER'], [hand._features[name, 'RIVER']], 0)
-
-                self._k_nearest_values[name, 'RIVER'] = np.append(self._k_nearest_values[name, 'RIVER'], hs)
-                hand._hand_strength_actual[name, 'RIVER'] = hs
-
-                # print nearest values for testing
-                #print name + ' shape k nearest values ' + str(np.shape(self._k_nearest_values[name, 'FLOP']))
-                #print name + ' shape k nearest matrices ' + str(np.shape(self._k_nearest_matrices[name, 'FLOP']))
+                  # save actual hand strength
+                  for i in range(len(hand._hand_strength[name,rd]['LB'])):
+                    hand._hand_strength[name, rd]['actual'].append(hs)
+                  
+                  comps = ['LB','UB','actual']
+                  for comp in comps:
+                    self._aggregate_hand_strength[name, rd][comp] += \
+                        hand._hand_strength[name, rd][comp]
 
         
         # Create a new hand and add to Bot's list of hands
@@ -498,12 +498,12 @@ class Bot(object):
     return hand_strength
 
 
-  def kNearest(self, x, features, values, ):
-
+  def kNearest(self, x, features, values):
+    
     diff = np.matrix( (x - features)**2 ).sum(axis=1).flatten().tolist()[0]
     ordered = [b for (a,b) in sorted(zip(diff, values))]
-    return np.mean(ordered[:self._k_nearest_points])
 
+    return np.mean(ordered[:self._k_nearest_points])
 
         
 if __name__ == '__main__':
