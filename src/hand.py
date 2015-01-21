@@ -16,6 +16,10 @@ class Hand(object):
     self._features = {}
     self._hand_strength_predict = {}
     self._hand_strength_actual = {}
+    self._hand_strength = {}
+    self._player_LB = {}
+    self._player_UB = {}
+    self._prev_bet = 2
     
     # Initialize variables
     self.setState('PREFLOP')
@@ -24,10 +28,10 @@ class Hand(object):
 
     for name,player in players.iteritems():
       player.resetPotentialHands()
-      self._features[name, 'PREFLOP'] = np.zeros(67, dtype=float)
-      self._features[name, 'FLOP'] = np.zeros(67, dtype=float)
-      self._features[name, 'TURN'] = np.zeros(67, dtype=float)
-      self._features[name, 'RIVER'] = np.zeros(67, dtype=float)
+      rounds = ['PREFLOP', 'FLOP', 'TURN', 'RIVER']
+      for rd in rounds:
+        self._features[name, rd] = np.zeros(67, dtype=float)
+        self._hand_strength[name, rd] = {'LB':[], 'UB':[], 'actual':[]}
     
 
   def setId(self, id):
@@ -68,6 +72,13 @@ class Hand(object):
       elif current_action in ['CALL']:
         player = words[2]
         amount = int(words[1])
+        
+        # calculate predicted lower and upper bounds for player hand strength
+        LB = amount / self._pot_size[self._state]
+        UB = 2 * amount / self._pot_size[self._state]
+        self._hand_strength[player, self._state]['LB'].append(LB)
+        self._hand_strength[player, self._state]['UB'].append(UB)
+
         self._actions[self._state].append((player, current_action, amount))
         self._pot_size[self._state] += amount
         self.addFeature(player, self._state, current_action)
@@ -75,6 +86,21 @@ class Hand(object):
       elif current_action in ['BET', 'RAISE']:
         player = words[2]
         amount = int(words[1])
+
+        # store current bet
+        if current_action == 'BET':
+          self._prev_bet = amount
+        else:
+          self._prev_bet = amount - self._prev_bet
+        
+        # calculate predicted lower and upper bounds for player hand strength
+        LB = min( amount / self._pot_size[self._state], 1)
+        UB = min( (amount + 1) / self._pot_size[self._state], 1)
+        self._player_LB[player] = LB
+        self._player_UB[player] = UB
+        self._hand_strength[player, self._state]['LB'].append(LB)
+        self._hand_strength[player, self._state]['UB'].append(UB)
+        
         self._actions[self._state].append((player, current_action, amount))
         self._pot_size[self._state] += amount
         self.addFeature(player, self._state, current_action)
@@ -91,11 +117,29 @@ class Hand(object):
 
       elif current_action in ['CHECK']:
         player = words[1]
+        
+        # calculate predicted lower and upper bounds for player hand strength
+        LB = 0
+        UB = self._prev_bet
+        self._player_LB[player] = LB
+        self._player_UB[player] = UB
+        self._hand_strength[player, self._state]['LB'].append(LB)
+        self._hand_strength[player, self._state]['UB'].append(UB)
+        
         self._actions[self._state].append((player, current_action))
         self.addFeature(player, self._state, current_action)
 
       elif current_action in ['FOLD']:
         player = words[1]
+        
+        # calculate predicted lower and upper bounds for player hand strength
+        LB = 0
+        UB = self._prev_bet
+        self._player_LB[player] = LB
+        self._player_UB[player] = UB
+        self._hand_strength[player, self._state]['LB'].append(LB)
+        self._hand_strength[player, self._state]['UB'].append(UB) 
+        
         self._actions[self._state].append((player, current_action))
 
       elif current_action == 'SHOW':
